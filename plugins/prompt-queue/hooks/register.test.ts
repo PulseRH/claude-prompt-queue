@@ -320,11 +320,11 @@ test('every button has a tooltip that is hidden until the pointer is over it', a
   await ui.input({ key: 'new-1', text: 'two' })
 
   const drawn = JSON.stringify(await ui.drawn())
-  for (const name of ['previous page', 'next page', 'band height', 'columns', 'card color', 'to top', 'up one', 'down one', 'edit', 'send now', 'delete']) {
+  for (const name of ['auto-send after each reply', 'previous page', 'next page', 'band height', 'columns', 'card color', 'to top', 'up one', 'down one', 'edit', 'send now', 'delete']) {
     expect(drawn).toContain(`"${name}"`)
   }
   // a tip is a hidden box that a hover reveals
-  expect(drawn).toMatch(/"display":"none"[^}]*\},"hover":\{"display":"flex"\},"children":\[\{"type":"Text","props":\{"dimColor":true\},"children":\["previous page"/)
+  expect(drawn).toMatch(/"display":"none"[^}]*\},"hover":\{"display":"flex"\},"children":\[\{"type":"Text","props":\{"dimColor":true\},"children":\["auto-send after each reply"/)
 })
 
 test('the queue survives a restart through the store', async ($, on) => {
@@ -371,17 +371,4 @@ test('a new conversation starts with an empty queue', async ($, on) => {
 
   expect(await ui.find({ text: /for thread one/ })).toBeUndefined()
   expect(JSON.stringify(await ui.drawn())).toContain('0')
-})
-
-test('the auto-send tooltip is an animated interactive SVG on the desktop', async ($, on) => {
-  boot(on)
-  await $.session.start(started)
-  const ui = await $.ui.mount(band('desktop'))
-
-  const svg = await ui.find({ type: 'Svg' })
-  expect(svg).toBeDefined()
-  expect(svg!.props.isInteractive).toBe(true)
-  expect(svg!.props.alt).toBe('auto-send after each reply')
-  expect(String(svg!.props.source)).toContain('@keyframes')
-  expect(String(svg!.props.source)).toContain('auto-send after each reply')
 })
