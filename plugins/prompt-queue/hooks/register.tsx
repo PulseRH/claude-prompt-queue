@@ -16,6 +16,8 @@ const isHover = atom({ plugin: 'prompt-queue', key: 'isHover' } as const, true)
 const editId = atom({ plugin: 'prompt-queue', key: 'editId' } as const, '')
 const draft = atom({ plugin: 'prompt-queue', key: 'draft' } as const, '')
 const rev = atom({ plugin: 'prompt-queue', key: 'rev' } as const, 0)
+// true while the input has the keyboard: it takes the whole header row, the controls step aside
+const isTyping = atom({ plugin: 'prompt-queue', key: 'isTyping' } as const, false)
 
 // auto-send: on/off is its own switch; the count and the delay are settings beside it
 const isAuto = atom({ plugin: 'prompt-queue', key: 'isAuto' } as const, false)
@@ -113,6 +115,22 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // the engine tells us whenever the focus ring moves: onto our input means expand, anywhere else collapse
+  on('ui.focus', async ($, e, next) => {
+    const mine = e.plugin === undefined || e.plugin === 'prompt-queue'
+    // a real focus move names the element; a plugin's own $.ui.focus call names it as `key`
+    const el = e.element ?? (e as { key?: string }).key ?? ''
+    const inInput = mine && el.startsWith('new-')
+    await update($, isTyping, () => inInput)
+    return next(e)
+  })
+
+  // sending a normal prompt means the person has moved on from the queue's input
+  on('prompt.submit', async ($, e, next) => {
+    await update($, isTyping, () => false)
+    return next(e)
+  })
+
   on('ui.render', async ($, e, next) => {
     const isBand = e.component === 'AbovePrompt'
     const isPane = e.component === 'Pane' && e.requestId === PANE
@@ -172,6 +190,7 @@ export const register: Register = on => {
     const left = (await read($, autoLeft)) as number
     const secs = (await read($, delay)) as number
     const ticking = (await read($, countdown)) as number
+    const typing = (await read($, isTyping)) as boolean
     const editing = (await read($, editId)) as string
     const draftText = (await read($, draft)) as string
     const revision = (await read($, rev)) as number
@@ -401,6 +420,8 @@ export const register: Register = on => {
               onSubmit={add}
             />
           </Box>
+          {/* while typing, everything but the input steps out of the way (display none keeps it mounted) */}
+          <Box display={typing ? 'none' : 'flex'} flexDirection="row" gap={1} flexShrink={0}>
           {/* the auto-send controls share one filled group; hovering it opens the pickers */}
           <Box flexShrink={0} flexDirection="row" alignItems="center" gap={1} paddingX={1} backgroundColor={autoBg}>
             {tip('auto', <Button key="auto" variant={auto ? 'primary' : 'secondary'} onPress={toggleAuto}>
@@ -460,6 +481,7 @@ export const register: Register = on => {
           </Box>
           <Box flexShrink={0}>
             {tip('where', <Button key="where" plain onPress={toggleWhere}>{isBand ? '◨' : '⬒'}</Button>, isBand ? 'side window' : 'above input')}
+          </Box>
           </Box>
         </Box>
         {ticking > 0 && (

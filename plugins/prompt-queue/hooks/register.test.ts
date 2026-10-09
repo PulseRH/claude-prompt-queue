@@ -13,6 +13,7 @@ const boot = (on: Parameters<Parameters<typeof test>[1]>[1], entries?: Record<st
     return { text: e.text }
   })
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  on('ui.focus', async () => ({}) as never)
   on('session.id', async () => ({ value: sessionId }) as never)
   return sent
 }
@@ -24,6 +25,7 @@ const band = (surface: (typeof SURFACES)[number]) =>
     plugin: 'prompt-queue',
     surface,
     component: 'AbovePrompt',
+    requestId: 'band',
     props: { hasSurvey: false, isWorking: false, maxRows: 30, bodyColumns: 100 },
   }) as never
 
@@ -371,4 +373,32 @@ test('a new conversation starts with an empty queue', async ($, on) => {
 
   expect(await ui.find({ text: /for thread one/ })).toBeUndefined()
   expect(JSON.stringify(await ui.drawn())).toContain('0')
+})
+
+test('the input takes the whole row while it has focus, and the controls come back when focus leaves', async ($, on) => {
+  boot(on)
+  await $.session.start(started)
+  const ui = await $.ui.mount(band('desktop'))
+  const controlsHidden = async () => /"display":"none","flexDirection":"row","gap":1,"flexShrink":0/.test(JSON.stringify(await ui.drawn()))
+
+  expect(await controlsHidden()).toBe(false)
+
+  await $.ui.focus({ requestId: 'band', key: 'new-0' }) // the person clicks into the input
+  expect(await controlsHidden()).toBe(true)
+
+  await $.ui.focus({ requestId: 'band', key: 'auto' }) // focus moves to another control
+  expect(await controlsHidden()).toBe(false)
+})
+
+test('sending a normal prompt collapses the input back', async ($, on) => {
+  boot(on)
+  await $.session.start(started)
+  const ui = await $.ui.mount(band('desktop'))
+  const controlsHidden = async () => /"display":"none","flexDirection":"row","gap":1,"flexShrink":0/.test(JSON.stringify(await ui.drawn()))
+
+  await $.ui.focus({ requestId: 'band', key: 'new-0' })
+  expect(await controlsHidden()).toBe(true)
+
+  await $.prompt.submit({ text: 'hello' })
+  expect(await controlsHidden()).toBe(false)
 })

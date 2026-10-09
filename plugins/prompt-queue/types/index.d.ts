@@ -22,6 +22,7 @@ declare module 'claude-code' {
       editId: string
       draft: string
       rev: number
+      isTyping: boolean
     }
   }
 }
