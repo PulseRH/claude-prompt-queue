@@ -123,7 +123,8 @@ export const register: Register = on => {
     if (isBand && (where !== 'band' || e.props.hasSurvey)) return next(e)
     if (isPane && where !== 'pane') return next(e)
 
-    const { Box, Text, Button, Input } = $.ui.resolve(e)
+    const { Box, Text, Button, Input, ...rest } = $.ui.resolve(e) as ReturnType<typeof $.ui.resolve> & { Svg?: unknown }
+    const Svg = (rest as { Svg?: any }).Svg
     const list = (await read($, items)) as QueuedPrompt[]
     const sz = (await read($, size)) as string
     const hist = (await read($, history)) as number[]
@@ -322,6 +323,27 @@ export const register: Register = on => {
       </Box>
     )
 
+    // experiment: on the desktop this one tooltip is a small interactive SVG whose CSS animation
+    // starts afresh each time the hover reveals it (the frame draws nothing while it is hidden),
+    // so it slides and fades in. Anywhere without Svg it is the plain text tooltip.
+    const slideTip = (name: string, button: unknown, text: string) => {
+      if (!Svg) return tip(name, button, text)
+      const w = Math.ceil(text.length * 7.2) + 16
+      const source =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="22">` +
+        '<style>@keyframes pop{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}' +
+        'text{animation:pop .25s ease-out both;font:12px system-ui,"Segoe UI",sans-serif;fill:#b8b0a8}</style>' +
+        `<text x="6" y="15">${text}</text></svg>`
+      return (
+        <Box key={'tip-' + name} flexDirection="row" alignItems="center">
+          {button}
+          <Box display="none" hover={{ display: 'flex' }} marginLeft={1}>
+            <Svg source={source} alt={text} width={w} height={22} isInteractive />
+          </Box>
+        </Box>
+      )
+    }
+
     const cell = (item: QueuedPrompt, n: number) => {
       const lines = textLines(item.text)
       const inline = isInline(item.text)
@@ -403,7 +425,7 @@ export const register: Register = on => {
           </Box>
           {/* the auto-send controls share one filled group; hovering it opens the pickers */}
           <Box flexShrink={0} flexDirection="row" alignItems="center" gap={1} paddingX={1} backgroundColor={autoBg}>
-            {tip('auto', <Button key="auto" variant={auto ? 'primary' : 'secondary'} onPress={toggleAuto}>
+            {slideTip('auto', <Button key="auto" variant={auto ? 'primary' : 'secondary'} onPress={toggleAuto}>
               {auto ? '⚡ On' : '⚡ Off'}
             </Button>, 'auto-send after each reply')}
             {/* each of these reveals its own choices beside it on hover: wider, never taller */}
