@@ -4,6 +4,7 @@ import type { Register } from 'claude-code'
 import type { Flash, QueuedPrompt } from '../types'
 
 const PANE = 'prompt-queue'
+const VERSION = '0.3.1'
 const items = atom({ plugin: 'prompt-queue', key: 'items' } as const, [])
 const isOpen = atom({ plugin: 'prompt-queue', key: 'isOpen' } as const, true)
 const mode = atom({ plugin: 'prompt-queue', key: 'mode' } as const, 'band')
@@ -81,7 +82,7 @@ export const register: Register = on => {
       await $.ui.open({ id: PANE, title: 'Prompt queue', focus: true })
     }
     if (!open) await $.ui.close({ id: PANE })
-    return { text: open ? 'Prompt queue shown.' : 'Prompt queue hidden.' }
+    return { text: (open ? 'Prompt queue shown' : 'Prompt queue hidden') + ' (v' + VERSION + ').' }
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -206,6 +207,11 @@ export const register: Register = on => {
       await update($, editId, () => '')
       await update($, draft, () => '')
       await update($, rev, (n: number) => n + 1)
+    }
+    // every keystroke: keep the draft in step (a redraw must not put the old text back) and expand while there is text
+    const typed = async (v: string) => {
+      await update($, draft, () => v)
+      await update($, isTyping, () => v.length > 0)
     }
     const startEdit = async (item: QueuedPrompt) => {
       await update($, editId, () => item.id)
@@ -418,6 +424,7 @@ export const register: Register = on => {
               value={draftText}
               submitLabel={editing ? 'save' : 'add'}
               onSubmit={add}
+              onInput={(v: string) => typed(v)}
             />
           </Box>
           {/* while typing, everything but the input steps out of the way (display none keeps it mounted) */}

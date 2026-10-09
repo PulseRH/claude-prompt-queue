@@ -13,6 +13,7 @@ const boot = (on: Parameters<Parameters<typeof test>[1]>[1], entries?: Record<st
     return { text: e.text }
   })
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  on('ui.close', async () => ({ value: undefined }) as never)
   on('ui.focus', async () => ({}) as never)
   on('session.id', async () => ({ value: sessionId }) as never)
   return sent
@@ -401,4 +402,26 @@ test('sending a normal prompt collapses the input back', async ($, on) => {
 
   await $.prompt.submit({ text: 'hello' })
   expect(await controlsHidden()).toBe(false)
+})
+
+test('typing in the input expands it while there is text, and clearing it collapses again', async ($, on) => {
+  boot(on)
+  await $.session.start(started)
+  const ui = await $.ui.mount(band('desktop'))
+  const controlsHidden = async () => /"display":"none","flexDirection":"row","gap":1,"flexShrink":0/.test(JSON.stringify(await ui.drawn()))
+
+  await ui.input({ key: 'new-0', text: 'half a prompt', kind: 'change' })
+  expect(await controlsHidden()).toBe(true)
+  // the redraw keeps what was typed
+  expect((await ui.find({ type: 'Input' }))?.props.value).toBe('half a prompt')
+
+  await ui.input({ key: 'new-0', text: '', kind: 'change' })
+  expect(await controlsHidden()).toBe(false)
+})
+
+test('the /queue reply says which version is running', async ($, on) => {
+  boot(on)
+  await $.session.start(started)
+  const out = await $.command.run({ command: 'queue', args: '' } as never)
+  expect(out.text).toMatch(/\(v\d+\.\d+\.\d+\)/)
 })
