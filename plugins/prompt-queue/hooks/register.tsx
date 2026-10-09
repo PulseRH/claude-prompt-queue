@@ -51,9 +51,22 @@ const mix = (from: string, to: string, t: number) => {
 export const register: Register = on => {
   // the running countdown to the next auto-send (a hot reload drops it; session.start clears the number)
   let pending: { cancel: () => void } | undefined
+  // each conversation keeps its own queue, under its own key in the plugin's store
+  let storeKey = 'items'
 
   on('session.start', async ($, e, next) => {
-    const saved = (await $.store.get('items')) as QueuedPrompt[] | undefined
+    const sid = await $.session.id()
+    storeKey = 'items:' + sid
+    let saved = (await $.store.get(storeKey)) as QueuedPrompt[] | undefined
+    if (saved === undefined) {
+      // the queue from before queues were per conversation moves to the first conversation that opens
+      const legacy = (await $.store.get('items')) as QueuedPrompt[] | undefined
+      if (legacy !== undefined) {
+        saved = legacy
+        await $.store.set(storeKey, legacy)
+        await $.store.delete('items')
+      }
+    }
     await update($, items, () => saved ?? [])
     await update($, countdown, () => 0)
     await $.command.register({ name: 'queue', description: 'Show or hide the prompt queue' })
@@ -89,7 +102,7 @@ export const register: Register = on => {
       if (list.length === 0) return
       const first = list[0]
       const saved = await update($, items, (l: QueuedPrompt[]) => l.filter(i => i.id !== first.id))
-      await $.store.set('items', saved)
+      await $.store.set(storeKey, saved)
       const remaining = (await read($, autoLeft)) as number
       if (remaining > 0) {
         const now = await update($, autoLeft, (n: number) => n - 1)
@@ -170,7 +183,7 @@ export const register: Register = on => {
       const saved = id
         ? await update($, items, (l: QueuedPrompt[]) => l.map(i => (i.id === id ? { ...i, text: t } : i)))
         : await update($, items, (l: QueuedPrompt[]) => [...l, { id: String(Date.now()) + Math.random(), text: t }])
-      await $.store.set('items', saved)
+      await $.store.set(storeKey, saved)
       await update($, editId, () => '')
       await update($, draft, () => '')
       await update($, rev, (n: number) => n + 1)
@@ -225,7 +238,7 @@ export const register: Register = on => {
     }
     const remove = async (id: string) => {
       const saved = await update($, items, (l: QueuedPrompt[]) => l.filter(i => i.id !== id))
-      await $.store.set('items', saved)
+      await $.store.set(storeKey, saved)
     }
     // the plugin UI cannot slide a card, so the one that moved lights up and fades
     const lightUp = async (id: string, dir: number) => {
@@ -254,7 +267,7 @@ export const register: Register = on => {
         c[j] = l[i]
         return c
       })
-      await $.store.set('items', saved)
+      await $.store.set(storeKey, saved)
       await lightUp(id, by)
     }
     // jump a prompt to the front of the queue
@@ -263,7 +276,7 @@ export const register: Register = on => {
         const found = l.find(x => x.id === id)
         return found ? [found, ...l.filter(x => x.id !== id)] : l
       })
-      await $.store.set('items', saved)
+      await $.store.set(storeKey, saved)
       await update($, start, () => 0)
       await update($, history, () => [])
       await lightUp(id, -1)

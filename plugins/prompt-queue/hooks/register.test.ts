@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 // the kit's bottom: what the engine itself answers beneath the plugin
 let clock: ReturnType<typeof mock.clock>
-const boot = (on: Parameters<Parameters<typeof test>[1]>[1], entries?: Record<string, unknown>) => {
+const boot = (on: Parameters<Parameters<typeof test>[1]>[1], entries?: Record<string, unknown>, sessionId = 's1') => {
   const sent: string[] = []
   mock.store(on, entries)
   clock = mock.clock(on)
@@ -13,6 +13,7 @@ const boot = (on: Parameters<Parameters<typeof test>[1]>[1], entries?: Record<st
     return { text: e.text }
   })
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: sessionId }) as never)
   return sent
 }
 
@@ -327,7 +328,7 @@ test('every button has a tooltip that is hidden until the pointer is over it', a
 })
 
 test('the queue survives a restart through the store', async ($, on) => {
-  boot(on, { items: [{ id: 'a', text: 'saved earlier' }] })
+  boot(on, { 'items:s1': [{ id: 'a', text: 'saved earlier' }] })
   await $.session.start(started)
   const ui = await $.ui.mount(band('desktop'))
 
@@ -344,4 +345,30 @@ test('a survey on screen: the band yields', async ($, on) => {
     .catch(() => undefined)
 
   expect(drawn).toBeUndefined()
+})
+
+test('each conversation has its own queue: another conversation is not shown this one', async ($, on) => {
+  boot(on, { 'items:s1': [{ id: 'a', text: 'for thread one' }], 'items:s2': [{ id: 'b', text: 'for thread two' }] }, 's2')
+  await $.session.start(started)
+  const ui = await $.ui.mount(band('desktop'))
+
+  expect(await ui.find({ text: /for thread two/ })).toBeDefined()
+  expect(await ui.find({ text: /for thread one/ })).toBeUndefined()
+})
+
+test('a queue saved before queues were per conversation moves to the first conversation that opens', async ($, on) => {
+  boot(on, { items: [{ id: 'a', text: 'old shared queue' }] }, 's9')
+  await $.session.start(started)
+  const ui = await $.ui.mount(band('desktop'))
+
+  expect(await ui.find({ text: /old shared queue/ })).toBeDefined()
+})
+
+test('a new conversation starts with an empty queue', async ($, on) => {
+  boot(on, { 'items:s1': [{ id: 'a', text: 'for thread one' }] }, 'fresh')
+  await $.session.start(started)
+  const ui = await $.ui.mount(band('desktop'))
+
+  expect(await ui.find({ text: /for thread one/ })).toBeUndefined()
+  expect(JSON.stringify(await ui.drawn())).toContain('0')
 })
