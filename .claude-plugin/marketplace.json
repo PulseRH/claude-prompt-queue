@@ -1,0 +1,12 @@
+{
+  "name": "pulserh-plugins",
+  "owner": { "name": "PulseRH" },
+  "description": "Claude Code mods by PulseRH",
+  "plugins": [
+    {
+      "name": "prompt-queue",
+      "source": "./plugins/prompt-queue",
+      "description": "Queue prompts in a card grid above the input and send each later with a button, or auto-send them with a countdown"
+    }
+  ]
+}

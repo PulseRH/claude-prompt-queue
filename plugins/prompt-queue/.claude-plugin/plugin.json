@@ -1,0 +1,8 @@
+{
+  "name": "prompt-queue",
+  "version": "0.1.0",
+  "description": "Queue prompts in a card grid above the input and send each later with a button, or auto-send them after each reply with a visible countdown",
+  "author": { "name": "PulseRH" },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
