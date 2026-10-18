@@ -4,7 +4,7 @@ import type { Register } from 'claude-code'
 import type { Flash, QueuedPrompt } from '../types'
 
 const PANE = 'prompt-queue'
-const VERSION = '0.3.1'
+const VERSION = '0.4.0'
 const items = atom({ plugin: 'prompt-queue', key: 'items' } as const, [])
 const isOpen = atom({ plugin: 'prompt-queue', key: 'isOpen' } as const, true)
 const mode = atom({ plugin: 'prompt-queue', key: 'mode' } as const, 'band')
@@ -54,23 +54,38 @@ const mix = (from: string, to: string, t: number) => {
 export const register: Register = on => {
   // the running countdown to the next auto-send (a hot reload drops it; session.start clears the number)
   let pending: { cancel: () => void } | undefined
-  // each conversation keeps its own queue, under its own key in the plugin's store
+  // every thread of a project shares one queue, under the project root's key in the plugin's store
   let storeKey = 'items'
+  // re-reads the store so edits made in the project's other threads show up here
+  let sync: { cancel: () => void } | undefined
 
   on('session.start', async ($, e, next) => {
-    const sid = await $.session.id()
-    storeKey = 'items:' + sid
+    storeKey = 'items@' + (await $.session.root())
     let saved = (await $.store.get(storeKey)) as QueuedPrompt[] | undefined
     if (saved === undefined) {
-      // the queue from before queues were per conversation moves to the first conversation that opens
+      // queues saved before they were per project: the old shared one and this thread's own join the project's
+      const sid = await $.session.id()
       const legacy = (await $.store.get('items')) as QueuedPrompt[] | undefined
-      if (legacy !== undefined) {
-        saved = legacy
-        await $.store.set(storeKey, legacy)
-        await $.store.delete('items')
+      const mine = (await $.store.get('items:' + sid)) as QueuedPrompt[] | undefined
+      if (legacy !== undefined || mine !== undefined) {
+        const merged = [...(legacy ?? []), ...(mine ?? [])].filter((x, i, all) => all.findIndex(y => y.id === x.id) === i)
+        saved = merged
+        await $.store.set(storeKey, merged)
+        if (legacy !== undefined) await $.store.delete('items')
+        if (mine !== undefined) await $.store.delete('items:' + sid)
       }
     }
     await update($, items, () => saved ?? [])
+    sync?.cancel()
+    sync = $.clock.every(2000, async () => {
+      try {
+        const stored = ((await $.store.get(storeKey)) as QueuedPrompt[] | undefined) ?? []
+        const shown = (await read($, items)) as QueuedPrompt[]
+        if (JSON.stringify(stored) !== JSON.stringify(shown)) await update($, items, () => stored)
+      } catch {
+        // the plugin was reloaded: this timer's environment is gone
+      }
+    })
     await update($, countdown, () => 0)
     await $.command.register({ name: 'queue', description: 'Show or hide the prompt queue' })
     return next(e)
@@ -101,11 +116,13 @@ export const register: Register = on => {
       await update($, countdown, () => 0)
       if (!(await read($, isAuto))) return
 
-      const list = (await read($, items)) as QueuedPrompt[]
+      // the project's other threads may have changed the queue: send what is first in the store now
+      const list = ((await $.store.get(storeKey)) as QueuedPrompt[] | undefined) ?? []
       if (list.length === 0) return
       const first = list[0]
-      const saved = await update($, items, (l: QueuedPrompt[]) => l.filter(i => i.id !== first.id))
-      await $.store.set(storeKey, saved)
+      const rest = list.slice(1)
+      await $.store.set(storeKey, rest)
+      await update($, items, () => rest)
       const remaining = (await read($, autoLeft)) as number
       if (remaining > 0) {
         const now = await update($, autoLeft, (n: number) => n - 1)
@@ -196,14 +213,21 @@ export const register: Register = on => {
     const draftText = (await read($, draft)) as string
     const revision = (await read($, rev)) as number
 
+    // re-read before every change so this thread never overwrites what another thread of the project wrote
+    const mutate = async (fn: (l: QueuedPrompt[]) => QueuedPrompt[]) => {
+      const stored = ((await $.store.get(storeKey)) as QueuedPrompt[] | undefined) ?? []
+      const out = fn(stored)
+      await $.store.set(storeKey, out)
+      await update($, items, () => out)
+      return out
+    }
     const add = async (text: string) => {
       const t = text.trim()
       if (!t) return
       const id = editing
-      const saved = id
-        ? await update($, items, (l: QueuedPrompt[]) => l.map(i => (i.id === id ? { ...i, text: t } : i)))
-        : await update($, items, (l: QueuedPrompt[]) => [...l, { id: String(Date.now()) + Math.random(), text: t }])
-      await $.store.set(storeKey, saved)
+      await (id
+        ? mutate((l: QueuedPrompt[]) => l.map(i => (i.id === id ? { ...i, text: t } : i)))
+        : mutate((l: QueuedPrompt[]) => [...l, { id: String(Date.now()) + Math.random(), text: t }]))
       await update($, editId, () => '')
       await update($, draft, () => '')
       await update($, rev, (n: number) => n + 1)
@@ -262,8 +286,7 @@ export const register: Register = on => {
       await update($, isHover, (v: boolean) => !v)
     }
     const remove = async (id: string) => {
-      const saved = await update($, items, (l: QueuedPrompt[]) => l.filter(i => i.id !== id))
-      await $.store.set(storeKey, saved)
+      await mutate((l: QueuedPrompt[]) => l.filter(i => i.id !== id))
     }
     // the plugin UI cannot slide a card, so the one that moved lights up and fades
     const lightUp = async (id: string, dir: number) => {
@@ -283,7 +306,7 @@ export const register: Register = on => {
       })()
     }
     const move = async (id: string, by: number) => {
-      const saved = await update($, items, (l: QueuedPrompt[]) => {
+      await mutate((l: QueuedPrompt[]) => {
         const i = l.findIndex(x => x.id === id)
         const j = i + by
         if (i < 0 || j < 0 || j >= l.length) return l
@@ -292,16 +315,14 @@ export const register: Register = on => {
         c[j] = l[i]
         return c
       })
-      await $.store.set(storeKey, saved)
       await lightUp(id, by)
     }
     // jump a prompt to the front of the queue
     const toTop = async (id: string) => {
-      const saved = await update($, items, (l: QueuedPrompt[]) => {
+      await mutate((l: QueuedPrompt[]) => {
         const found = l.find(x => x.id === id)
         return found ? [found, ...l.filter(x => x.id !== id)] : l
       })
-      await $.store.set(storeKey, saved)
       await update($, start, () => 0)
       await update($, history, () => [])
       await lightUp(id, -1)
@@ -416,7 +437,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         <Box flexDirection="row" gap={1}>
-          <Box flexGrow={1} flexShrink={1}>
+          <Box flexGrow={1} flexShrink={1} flexDirection="column" alignItems="stretch">
             <Input
               key={'new-' + revision}
               label={editing ? 'Edit: ' : 'Queue: '}

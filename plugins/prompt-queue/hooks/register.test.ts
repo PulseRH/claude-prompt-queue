@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 // the kit's bottom: what the engine itself answers beneath the plugin
 let clock: ReturnType<typeof mock.clock>
-const boot = (on: Parameters<Parameters<typeof test>[1]>[1], entries?: Record<string, unknown>, sessionId = 's1') => {
+const boot = (on: Parameters<Parameters<typeof test>[1]>[1], entries?: Record<string, unknown>, sessionId = 's1', root = '/proj') => {
   const sent: string[] = []
   mock.store(on, entries)
   clock = mock.clock(on)
@@ -16,6 +16,7 @@ const boot = (on: Parameters<Parameters<typeof test>[1]>[1], entries?: Record<st
   on('ui.close', async () => ({ value: undefined }) as never)
   on('ui.focus', async () => ({}) as never)
   on('session.id', async () => ({ value: sessionId }) as never)
+  on('session.root', async () => ({ value: root }) as never)
   return sent
 }
 
@@ -331,7 +332,7 @@ test('every button has a tooltip that is hidden until the pointer is over it', a
 })
 
 test('the queue survives a restart through the store', async ($, on) => {
-  boot(on, { 'items:s1': [{ id: 'a', text: 'saved earlier' }] })
+  boot(on, { 'items@/proj': [{ id: 'a', text: 'saved earlier' }] })
   await $.session.start(started)
   const ui = await $.ui.mount(band('desktop'))
 
@@ -350,30 +351,37 @@ test('a survey on screen: the band yields', async ($, on) => {
   expect(drawn).toBeUndefined()
 })
 
-test('each conversation has its own queue: another conversation is not shown this one', async ($, on) => {
-  boot(on, { 'items:s1': [{ id: 'a', text: 'for thread one' }], 'items:s2': [{ id: 'b', text: 'for thread two' }] }, 's2')
+test('threads of the same project share one queue', async ($, on) => {
+  boot(on, { 'items@/proj': [{ id: 'a', text: 'shared prompt' }] }, 'another-thread', '/proj')
   await $.session.start(started)
   const ui = await $.ui.mount(band('desktop'))
 
-  expect(await ui.find({ text: /for thread two/ })).toBeDefined()
-  expect(await ui.find({ text: /for thread one/ })).toBeUndefined()
+  expect(await ui.find({ text: /shared prompt/ })).toBeDefined()
 })
 
-test('a queue saved before queues were per conversation moves to the first conversation that opens', async ($, on) => {
-  boot(on, { items: [{ id: 'a', text: 'old shared queue' }] }, 's9')
+test('a different project has its own queue', async ($, on) => {
+  boot(on, { 'items@/proj': [{ id: 'a', text: 'shared prompt' }] }, 's1', '/other-project')
+  await $.session.start(started)
+  const ui = await $.ui.mount(band('desktop'))
+
+  expect(await ui.find({ text: /shared prompt/ })).toBeUndefined()
+})
+
+test('queues saved by older versions join the project queue: the old shared one and this thread own', async ($, on) => {
+  boot(on, { items: [{ id: 'a', text: 'old shared queue' }], 'items:s1': [{ id: 'b', text: 'this thread queue' }] }, 's1', '/proj')
   await $.session.start(started)
   const ui = await $.ui.mount(band('desktop'))
 
   expect(await ui.find({ text: /old shared queue/ })).toBeDefined()
+  expect(await ui.find({ text: /this thread queue/ })).toBeDefined()
 })
 
-test('a new conversation starts with an empty queue', async ($, on) => {
-  boot(on, { 'items:s1': [{ id: 'a', text: 'for thread one' }] }, 'fresh')
+test('the input sits in a column wrapper that stretches it across the row', async ($, on) => {
+  boot(on)
   await $.session.start(started)
   const ui = await $.ui.mount(band('desktop'))
 
-  expect(await ui.find({ text: /for thread one/ })).toBeUndefined()
-  expect(JSON.stringify(await ui.drawn())).toContain('0')
+  expect(JSON.stringify(await ui.drawn())).toMatch(/"flexGrow":1,"flexShrink":1,"flexDirection":"column","alignItems":"stretch"\},"children":\[\{"type":"Input"/)
 })
 
 test('the input takes the whole row while it has focus, and the controls come back when focus leaves', async ($, on) => {

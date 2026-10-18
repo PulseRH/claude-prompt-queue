@@ -19,7 +19,7 @@ Then type `/queue` to show or hide it.
 - **Auto-send** (`⚡`): after each finished reply it counts down (3-30 s, visibly) and sends the first queued prompt. Pick how many to send before it switches itself off (1-10 or no limit). Cancel during the countdown stops it.
 - **The input expands** to the full row while you are typing in it, and the buttons come back when focus leaves.
 - Card color (`◐`), band height (`⤢`), paging (`‹ ›`), tooltips on every button.
-- **Each conversation has its own queue**, saved between sessions (keyed by session id). Display settings and auto-send reset each session.
+- **One queue per project**, shared by every thread in that project and saved between sessions (keyed by the project root); threads pick up each other's changes within a couple of seconds. Display settings and auto-send reset each session.
 
 Built for the desktop Code tab; it also validates on the terminal surface.
 
