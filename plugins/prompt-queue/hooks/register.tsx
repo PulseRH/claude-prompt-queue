@@ -4,7 +4,8 @@ import type { Register } from 'claude-code'
 import type { Flash, QueuedPrompt } from '../types'
 
 const PANE = 'prompt-queue'
-const VERSION = '0.4.0'
+const PLACEHOLDER = 'type a prompt, Enter to add'
+const VERSION = '0.5.0'
 const items = atom({ plugin: 'prompt-queue', key: 'items' } as const, [])
 const isOpen = atom({ plugin: 'prompt-queue', key: 'isOpen' } as const, true)
 const mode = atom({ plugin: 'prompt-queue', key: 'mode' } as const, 'band')
@@ -17,8 +18,8 @@ const isHover = atom({ plugin: 'prompt-queue', key: 'isHover' } as const, true)
 const editId = atom({ plugin: 'prompt-queue', key: 'editId' } as const, '')
 const draft = atom({ plugin: 'prompt-queue', key: 'draft' } as const, '')
 const rev = atom({ plugin: 'prompt-queue', key: 'rev' } as const, 0)
-// true while the input has the keyboard: it takes the whole header row, the controls step aside
-const isTyping = atom({ plugin: 'prompt-queue', key: 'isTyping' } as const, false)
+// the ⋯ settings kept open by a click (a hover only peeks)
+const isMoreOpen = atom({ plugin: 'prompt-queue', key: 'isMoreOpen' } as const, false)
 
 // auto-send: on/off is its own switch; the count and the delay are settings beside it
 const isAuto = atom({ plugin: 'prompt-queue', key: 'isAuto' } as const, false)
@@ -133,22 +134,6 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // the engine tells us whenever the focus ring moves: onto our input means expand, anywhere else collapse
-  on('ui.focus', async ($, e, next) => {
-    const mine = e.plugin === undefined || e.plugin === 'prompt-queue'
-    // a real focus move names the element; a plugin's own $.ui.focus call names it as `key`
-    const el = e.element ?? (e as { key?: string }).key ?? ''
-    const inInput = mine && el.startsWith('new-')
-    await update($, isTyping, () => inInput)
-    return next(e)
-  })
-
-  // sending a normal prompt means the person has moved on from the queue's input
-  on('prompt.submit', async ($, e, next) => {
-    await update($, isTyping, () => false)
-    return next(e)
-  })
-
   on('ui.render', async ($, e, next) => {
     const isBand = e.component === 'AbovePrompt'
     const isPane = e.component === 'Pane' && e.requestId === PANE
@@ -208,7 +193,7 @@ export const register: Register = on => {
     const left = (await read($, autoLeft)) as number
     const secs = (await read($, delay)) as number
     const ticking = (await read($, countdown)) as number
-    const typing = (await read($, isTyping)) as boolean
+    const moreOpen = (await read($, isMoreOpen)) as boolean
     const editing = (await read($, editId)) as string
     const draftText = (await read($, draft)) as string
     const revision = (await read($, rev)) as number
@@ -232,10 +217,12 @@ export const register: Register = on => {
       await update($, draft, () => '')
       await update($, rev, (n: number) => n + 1)
     }
-    // every keystroke: keep the draft in step (a redraw must not put the old text back) and expand while there is text
+    // every keystroke: keep the draft in step, so a redraw never puts the old text back
     const typed = async (v: string) => {
       await update($, draft, () => v)
-      await update($, isTyping, () => v.length > 0)
+    }
+    const toggleMore = async () => {
+      await update($, isMoreOpen, (v: boolean) => !v)
     }
     const startEdit = async (item: QueuedPrompt) => {
       await update($, editId, () => item.id)
@@ -434,84 +421,99 @@ export const register: Register = on => {
     const nextText = list[0]?.text ?? ''
     const nextShort = nextText.length > 40 ? nextText.slice(0, 39) + '…' : nextText
 
-    return (
-      <Box flexDirection="column">
-        <Box flexDirection="row" gap={1}>
-          <Box flexGrow={1} flexShrink={1} flexDirection="column" alignItems="stretch">
-            <Input
-              key={'new-' + revision}
-              label={editing ? 'Edit: ' : 'Queue: '}
-              placeholder="type a prompt, Enter to add"
-              value={draftText}
-              submitLabel={editing ? 'save' : 'add'}
-              onSubmit={add}
-              onInput={(v: string) => typed(v)}
-            />
-          </Box>
-          {/* while typing, everything but the input steps out of the way (display none keeps it mounted) */}
-          <Box display={typing ? 'none' : 'flex'} flexDirection="row" gap={1} flexShrink={0}>
-          {/* the auto-send controls share one filled group; hovering it opens the pickers */}
-          <Box flexShrink={0} flexDirection="row" alignItems="center" gap={1} paddingX={1} backgroundColor={autoBg}>
-            {tip('auto', <Button key="auto" variant={auto ? 'primary' : 'secondary'} onPress={toggleAuto}>
-              {auto ? '⚡ On' : '⚡ Off'}
-            </Button>, 'auto-send after each reply')}
-            {/* each of these reveals its own choices beside it on hover: wider, never taller */}
-            <Box key="limgrp" flexDirection="row" alignItems="center">
-              <Button key="limit" plain onPress={cycleLimit}>
-                {auto ? (left < 0 ? '∞ left' : left + ' left') : '×' + (limit < 0 ? '∞' : limit)}
-              </Button>
-              <Box display="none" hover={{ display: 'flex' }} flexDirection="row" gap={1} marginLeft={1}>
-                <Text dimColor>send</Text>
-                {LIMITS.map(n => (
-                  <Button key={'lim-' + n} plain variant={n === limit ? 'primary' : 'secondary'} onPress={() => setLimit(n)}>
-                    {n < 0 ? '∞' : String(n)}
-                  </Button>
-                ))}
-              </Box>
-            </Box>
-            <Box key="dlygrp" flexDirection="row" alignItems="center">
-              <Button key="delay" plain onPress={cycleDelay}>{'⏱ ' + secs + 's'}</Button>
-              <Box display="none" hover={{ display: 'flex' }} flexDirection="row" gap={1} marginLeft={1}>
-                <Text dimColor>wait</Text>
-                {DELAYS.map(s => (
-                  <Button key={'dly-' + s} plain variant={s === secs ? 'primary' : 'secondary'} onPress={() => setDelay(s)}>
-                    {s + 's'}
-                  </Button>
-                ))}
-              </Box>
+    // the built-in field cannot be resized, but the desktop sizes it to its placeholder text,
+    // so the placeholder is padded with invisible figure spaces to fill the room it has
+    const twoRows = !isBand || sz === 'L'
+    const CONTROL_CELLS = 46
+    const fieldCells = Math.max(16, (twoRows ? cols : cols - CONTROL_CELLS) - 8)
+    const padCount = Math.max(0, Math.round(fieldCells * fudge) - PLACEHOLDER.length)
+    const placeholder = PLACEHOLDER + ' '.repeat(padCount)
+
+    const field = (
+      <Box flexGrow={1} flexShrink={1} flexDirection="column" alignItems="stretch">
+        <Input
+          key={'new-' + revision}
+          label={editing ? 'Edit: ' : 'Queue: '}
+          placeholder={placeholder}
+          value={draftText}
+          submitLabel={editing ? 'save' : 'add'}
+          onSubmit={add}
+          onInput={(v: string) => typed(v)}
+        />
+      </Box>
+    )
+
+    // the less used settings live behind ⋯: hover to peek, click to keep them open
+    const controls = (
+      <Box flexDirection="row" gap={1} flexShrink={0} alignItems="center">
+        <Box flexShrink={0} flexDirection="row" alignItems="center" gap={1} paddingX={1} backgroundColor={autoBg}>
+          {tip('auto', <Button key="auto" variant={auto ? 'primary' : 'secondary'} onPress={toggleAuto}>
+            {auto ? '⚡ On' : '⚡ Off'}
+          </Button>, 'auto-send after each reply')}
+          {/* each of these reveals its own choices beside it on hover: wider, never taller */}
+          <Box key="limgrp" flexDirection="row" alignItems="center">
+            <Button key="limit" plain onPress={cycleLimit}>
+              {auto ? (left < 0 ? '∞ left' : left + ' left') : '×' + (limit < 0 ? '∞' : limit)}
+            </Button>
+            <Box display="none" hover={{ display: 'flex' }} flexDirection="row" gap={1} marginLeft={1}>
+              <Text dimColor>send</Text>
+              {LIMITS.map(n => (
+                <Button key={'lim-' + n} plain variant={n === limit ? 'primary' : 'secondary'} onPress={() => setLimit(n)}>
+                  {n < 0 ? '∞' : String(n)}
+                </Button>
+              ))}
             </Box>
           </Box>
-          {editing && (
-            <Box flexShrink={0}>
-              <Button key="cancel" plain onPress={cancelEdit}>✕ Cancel</Button>
+          <Box key="dlygrp" flexDirection="row" alignItems="center">
+            <Button key="delay" plain onPress={cycleDelay}>{'⏱ ' + secs + 's'}</Button>
+            <Box display="none" hover={{ display: 'flex' }} flexDirection="row" gap={1} marginLeft={1}>
+              <Text dimColor>wait</Text>
+              {DELAYS.map(s => (
+                <Button key={'dly-' + s} plain variant={s === secs ? 'primary' : 'secondary'} onPress={() => setDelay(s)}>
+                  {s + 's'}
+                </Button>
+              ))}
             </Box>
-          )}
-          <Box flexShrink={0} flexDirection="row" gap={1}>
-            {tip('prev', <Button key="prev" plain dimColor={hist.length === 0} onPress={prev}>‹</Button>, 'previous page')}
-            <Text dimColor wrap="truncate-end">
-              {list.length === 0 ? '0' : `${from + 1}-${from + shown}/${list.length}`}
-            </Text>
-            {tip('next', <Button key="next" plain dimColor={from + shown >= list.length} onPress={next_}>›</Button>, 'next page')}
-          </Box>
-          {isBand && (
-            <Box flexShrink={0}>
-              {tip('size', <Button key="size" plain onPress={cycleSize}>{'⤢ ' + sz}</Button>, 'band height')}
-            </Box>
-          )}
-          <Box flexShrink={0}>
-            {tip('cols', <Button key="cols" plain onPress={cycleCols}>{'▥ ' + nc}</Button>, 'columns')}
-          </Box>
-          <Box flexShrink={0}>
-            {tip('hov', <Button key="hov" plain onPress={toggleHover}>{hoverMode ? '◉' : '○'}</Button>, 'card buttons on hover')}
-          </Box>
-          <Box flexShrink={0}>
-            {tip('tone', <Button key="tone" plain onPress={cycleTone}>◐</Button>, 'card color')}
-          </Box>
-          <Box flexShrink={0}>
-            {tip('where', <Button key="where" plain onPress={toggleWhere}>{isBand ? '◨' : '⬒'}</Button>, isBand ? 'side window' : 'above input')}
-          </Box>
           </Box>
         </Box>
+        {editing && (
+          <Box flexShrink={0}>
+            <Button key="cancel" plain onPress={cancelEdit}>✕ Cancel</Button>
+          </Box>
+        )}
+        <Box flexShrink={0} flexDirection="row" gap={1}>
+          {tip('prev', <Button key="prev" plain dimColor={hist.length === 0} onPress={prev}>‹</Button>, 'previous page')}
+          <Text dimColor wrap="truncate-end">
+            {list.length === 0 ? '0' : `${from + 1}-${from + shown}/${list.length}`}
+          </Text>
+          {tip('next', <Button key="next" plain dimColor={from + shown >= list.length} onPress={next_}>›</Button>, 'next page')}
+        </Box>
+        <Box key="moregrp" flexDirection="row" alignItems="center" gap={1}>
+          {tip('more', <Button key="more" plain onPress={toggleMore}>⋯</Button>, moreOpen ? 'hide settings' : 'settings')}
+          <Box display={moreOpen ? 'flex' : 'none'} {...(moreOpen ? {} : { hover: { display: 'flex' } })} flexDirection="row" gap={1}>
+            {isBand && tip('size', <Button key="size" plain onPress={cycleSize}>{'⤢ ' + sz}</Button>, 'band height')}
+            {tip('cols', <Button key="cols" plain onPress={cycleCols}>{'▥ ' + nc}</Button>, 'columns')}
+            {tip('hov', <Button key="hov" plain onPress={toggleHover}>{hoverMode ? '◉' : '○'}</Button>, 'card buttons on hover')}
+            {tip('tone', <Button key="tone" plain onPress={cycleTone}>◐</Button>, 'card color')}
+            {tip('where', <Button key="where" plain onPress={toggleWhere}>{isBand ? '◨' : '⬒'}</Button>, isBand ? 'side window' : 'above input')}
+          </Box>
+        </Box>
+      </Box>
+    )
+
+    return (
+      <Box flexDirection="column">
+        {twoRows ? (
+          <Box flexDirection="column">
+            {field}
+            {controls}
+          </Box>
+        ) : (
+          <Box flexDirection="row" gap={1}>
+            {field}
+            {controls}
+          </Box>
+        )}
         {ticking > 0 && (
           <Box flexDirection="row" gap={1} marginY={1}>
             <Text bold color="claude">{'⏱ ' + ticking}</Text>

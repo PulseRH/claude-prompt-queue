@@ -17,7 +17,7 @@ Then type `/queue` to show or hide it.
 - **Queue** prompts in a 1, 2 or 3 column grid of cards (`▥`), or move it to a side window (`◨`).
 - **Per card:** `⇈` to top, `↑` `↓` reorder (the moved card lights up), `✎` edit, `➤` send now, `✕` delete. Buttons appear on hover (`◉` turns that off).
 - **Auto-send** (`⚡`): after each finished reply it counts down (3-30 s, visibly) and sends the first queued prompt. Pick how many to send before it switches itself off (1-10 or no limit). Cancel during the countdown stops it.
-- **The input expands** to the full row while you are typing in it, and the buttons come back when focus leaves.
+- **Compact header:** band height, columns, hover mode, card color and side window sit behind `⋯` (hover to peek, click to keep open). At band height L and in the side window the input gets its own row.
 - Card color (`◐`), band height (`⤢`), paging (`‹ ›`), tooltips on every button.
 - **One queue per project**, shared by every thread in that project and saved between sessions (keyed by the project root); threads pick up each other's changes within a couple of seconds. Display settings and auto-send reset each session.
 

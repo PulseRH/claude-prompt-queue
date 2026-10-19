@@ -384,47 +384,48 @@ test('the input sits in a column wrapper that stretches it across the row', asyn
   expect(JSON.stringify(await ui.drawn())).toMatch(/"flexGrow":1,"flexShrink":1,"flexDirection":"column","alignItems":"stretch"\},"children":\[\{"type":"Input"/)
 })
 
-test('the input takes the whole row while it has focus, and the controls come back when focus leaves', async ($, on) => {
+test('typing keeps the draft in step, so a redraw never puts the old text back', async ($, on) => {
   boot(on)
   await $.session.start(started)
   const ui = await $.ui.mount(band('desktop'))
-  const controlsHidden = async () => /"display":"none","flexDirection":"row","gap":1,"flexShrink":0/.test(JSON.stringify(await ui.drawn()))
-
-  expect(await controlsHidden()).toBe(false)
-
-  await $.ui.focus({ requestId: 'band', key: 'new-0' }) // the person clicks into the input
-  expect(await controlsHidden()).toBe(true)
-
-  await $.ui.focus({ requestId: 'band', key: 'auto' }) // focus moves to another control
-  expect(await controlsHidden()).toBe(false)
-})
-
-test('sending a normal prompt collapses the input back', async ($, on) => {
-  boot(on)
-  await $.session.start(started)
-  const ui = await $.ui.mount(band('desktop'))
-  const controlsHidden = async () => /"display":"none","flexDirection":"row","gap":1,"flexShrink":0/.test(JSON.stringify(await ui.drawn()))
-
-  await $.ui.focus({ requestId: 'band', key: 'new-0' })
-  expect(await controlsHidden()).toBe(true)
-
-  await $.prompt.submit({ text: 'hello' })
-  expect(await controlsHidden()).toBe(false)
-})
-
-test('typing in the input expands it while there is text, and clearing it collapses again', async ($, on) => {
-  boot(on)
-  await $.session.start(started)
-  const ui = await $.ui.mount(band('desktop'))
-  const controlsHidden = async () => /"display":"none","flexDirection":"row","gap":1,"flexShrink":0/.test(JSON.stringify(await ui.drawn()))
 
   await ui.input({ key: 'new-0', text: 'half a prompt', kind: 'change' })
-  expect(await controlsHidden()).toBe(true)
-  // the redraw keeps what was typed
   expect((await ui.find({ type: 'Input' }))?.props.value).toBe('half a prompt')
+})
 
-  await ui.input({ key: 'new-0', text: '', kind: 'change' })
-  expect(await controlsHidden()).toBe(false)
+test('the less used settings sit behind ⋯: hidden until hovered, and a click keeps them open', async ($, on) => {
+  boot(on)
+  await $.session.start(started)
+  const ui = await $.ui.mount(band('desktop'))
+  const settingsHidden = async () => /"display":"none","flexDirection":"row","gap":1\},"hover":\{"display":"flex"\},"children":\[\{"type":"Box","props":\{"key":"tip-size"/.test(JSON.stringify(await ui.drawn()))
+
+  expect(await settingsHidden()).toBe(true)
+  await ui.press({ key: 'more' })
+  expect(await settingsHidden()).toBe(false)
+  await ui.press({ key: 'more' })
+  expect(await settingsHidden()).toBe(true)
+})
+
+test('at band height L the input gets its own row and the controls go on a second row', async ($, on) => {
+  boot(on)
+  await $.session.start(started)
+  const ui = await $.ui.mount(band('desktop'))
+  const twoRows = async () => /^\{"type":"Box","props":\{"flexDirection":"column"\},"children":\[\{"type":"Box","props":\{"flexDirection":"column"\},"children":\[\{"type":"Box","props":\{"flexGrow":1/.test(JSON.stringify(await ui.drawn()))
+
+  expect(await twoRows()).toBe(false) // M: one row
+  await ui.press({ key: 'size' }) // L
+  expect(await twoRows()).toBe(true)
+})
+
+test('the placeholder is padded with invisible spaces so the field is drawn wider', async ($, on) => {
+  boot(on)
+  await $.session.start(started)
+  const ui = await $.ui.mount(band('desktop'))
+  const ph = String((await ui.find({ type: 'Input' }))?.props.placeholder)
+
+  expect(ph.startsWith('type a prompt, Enter to add')).toBe(true)
+  expect(ph.length).toBeGreaterThan('type a prompt, Enter to add'.length + 10)
+  expect(ph.slice('type a prompt, Enter to add'.length).replace(/ /g, '')).toBe('')
 })
 
 test('the /queue reply says which version is running', async ($, on) => {
